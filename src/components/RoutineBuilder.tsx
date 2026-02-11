@@ -8,23 +8,25 @@ import { CSS } from '@dnd-kit/utilities'
 import { Save, X, Plus, Clock, Award } from 'lucide-react'
 
 interface Task {
-  id: string
+  id?: number
   name: string
   icon: string
   duration: number
   points: number
+  sort_order?: number
+  _tempId?: string
 }
 
 interface Routine {
-  id: string
+  id: number | string
   name: string
   type: 'morning' | 'afterschool' | 'bedtime'
   tasks: Task[]
-  assignedChildren: string[]
+  assignedChildren: number[]
 }
 
 interface Child {
-  id: string
+  id: number
   name: string
   age: number
   xp: number
@@ -35,7 +37,7 @@ interface Child {
 
 interface Props {
   routine: Routine
-  children: Child[]
+  familyChildren: Child[]
   onSave: (routine: Routine) => void
   onCancel: () => void
 }
@@ -56,19 +58,14 @@ const AVAILABLE_TASKS: Omit<Task, 'id'>[] = [
   { name: 'Say Goodnight', icon: '😴', duration: 2, points: 10 }
 ]
 
-function SortableTask({ task, onEdit, onRemove }: { 
-  task: Task
-  onEdit: (task: Task) => void
-  onRemove: (taskId: string) => void
+function SortableTask({ task, onRemove }: {
+  task: Task & { _tempId?: string }
+  onRemove: (id: string) => void
 }) {
+  const sortId = task._tempId || String(task.id)
   const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: task.id })
+    attributes, listeners, setNodeRef, transform, transition, isDragging,
+  } = useSortable({ id: sortId })
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -77,13 +74,8 @@ function SortableTask({ task, onEdit, onRemove }: {
   }
 
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      {...attributes}
-      {...listeners}
-      className="bg-white/20 rounded-xl p-4 cursor-move hover:bg-white/30 transition-all group"
-    >
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}
+      className="bg-white/20 rounded-xl p-4 cursor-move hover:bg-white/30 transition-all group">
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-3">
           <span className="text-2xl">{task.icon}</span>
@@ -91,39 +83,29 @@ function SortableTask({ task, onEdit, onRemove }: {
             <div className="text-white font-semibold">{task.name}</div>
             <div className="text-white/60 text-sm flex items-center space-x-4">
               <span className="flex items-center space-x-1">
-                <Clock className="w-3 h-3" />
-                <span>{task.duration}m</span>
+                <Clock className="w-3 h-3" /><span>{task.duration}m</span>
               </span>
               <span className="flex items-center space-x-1">
-                <Award className="w-3 h-3" />
-                <span>{task.points}pt</span>
+                <Award className="w-3 h-3" /><span>{task.points}pt</span>
               </span>
             </div>
           </div>
         </div>
-        <div className="flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button
-            onClick={() => onEdit(task)}
-            className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded-lg text-sm transition-all"
-          >
-            Edit
-          </button>
-          <button
-            onClick={() => onRemove(task.id)}
-            className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded-lg text-sm transition-all"
-          >
-            Remove
-          </button>
-        </div>
+        <button onClick={() => onRemove(sortId)}
+          className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded-lg text-sm transition-all opacity-0 group-hover:opacity-100">
+          Remove
+        </button>
       </div>
     </div>
   )
 }
 
-export default function RoutineBuilder({ routine, children, onSave, onCancel }: Props) {
-  const [currentRoutine, setCurrentRoutine] = useState<Routine>(routine)
+export default function RoutineBuilder({ routine, familyChildren, onSave, onCancel }: Props) {
+  const [currentRoutine, setCurrentRoutine] = useState<Routine & { tasks: (Task & { _tempId?: string })[] }>({
+    ...routine,
+    tasks: routine.tasks.map((t, i) => ({ ...t, _tempId: t._tempId || `task-${Date.now()}-${i}` }))
+  })
   const [activeId, setActiveId] = useState<string | null>(null)
-  const [editingTask, setEditingTask] = useState<Task | null>(null)
 
   const handleDragStart = (event: DragStartEvent) => {
     setActiveId(event.active.id as string)
@@ -131,11 +113,9 @@ export default function RoutineBuilder({ routine, children, onSave, onCancel }: 
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event
-
     if (active.id !== over?.id) {
-      const oldIndex = currentRoutine.tasks.findIndex(task => task.id === active.id)
-      const newIndex = currentRoutine.tasks.findIndex(task => task.id === over?.id)
-
+      const oldIndex = currentRoutine.tasks.findIndex(t => (t._tempId || String(t.id)) === active.id)
+      const newIndex = currentRoutine.tasks.findIndex(t => (t._tempId || String(t.id)) === over?.id)
       setCurrentRoutine({
         ...currentRoutine,
         tasks: arrayMove(currentRoutine.tasks, oldIndex, newIndex)
@@ -145,9 +125,9 @@ export default function RoutineBuilder({ routine, children, onSave, onCancel }: 
   }
 
   const addTask = (taskTemplate: Omit<Task, 'id'>) => {
-    const newTask: Task = {
+    const newTask: Task & { _tempId: string } = {
       ...taskTemplate,
-      id: Date.now().toString()
+      _tempId: `task-${Date.now()}-${Math.random().toString(36).slice(2)}`
     }
     setCurrentRoutine({
       ...currentRoutine,
@@ -155,28 +135,18 @@ export default function RoutineBuilder({ routine, children, onSave, onCancel }: 
     })
   }
 
-  const editTask = (updatedTask: Task) => {
+  const removeTask = (sortId: string) => {
     setCurrentRoutine({
       ...currentRoutine,
-      tasks: currentRoutine.tasks.map(task => 
-        task.id === updatedTask.id ? updatedTask : task
-      )
-    })
-    setEditingTask(null)
-  }
-
-  const removeTask = (taskId: string) => {
-    setCurrentRoutine({
-      ...currentRoutine,
-      tasks: currentRoutine.tasks.filter(task => task.id !== taskId)
+      tasks: currentRoutine.tasks.filter(t => (t._tempId || String(t.id)) !== sortId)
     })
   }
 
-  const toggleChildAssignment = (childId: string) => {
+  const toggleChildAssignment = (childId: number) => {
     const isAssigned = currentRoutine.assignedChildren.includes(childId)
     setCurrentRoutine({
       ...currentRoutine,
-      assignedChildren: isAssigned 
+      assignedChildren: isAssigned
         ? currentRoutine.assignedChildren.filter(id => id !== childId)
         : [...currentRoutine.assignedChildren, childId]
     })
@@ -189,50 +159,39 @@ export default function RoutineBuilder({ routine, children, onSave, onCancel }: 
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold text-white">
-          {routine.name ? 'Edit Routine' : 'Create New Routine'}
+          {routine.id === 'new' ? 'Create New Routine' : 'Edit Routine'}
         </h2>
         <div className="flex space-x-3">
-          <button
-            onClick={onCancel}
-            className="flex items-center space-x-2 bg-gray-500/20 hover:bg-gray-500/30 px-6 py-3 rounded-xl text-white font-semibold transition-all"
-          >
-            <X className="w-5 h-5" />
-            <span>Cancel</span>
+          <button onClick={onCancel}
+            className="flex items-center space-x-2 bg-gray-500/20 hover:bg-gray-500/30 px-6 py-3 rounded-xl text-white font-semibold transition-all">
+            <X className="w-5 h-5" /><span>Cancel</span>
           </button>
-          <button
-            onClick={() => onSave(currentRoutine)}
+          <button onClick={() => onSave(currentRoutine)}
             disabled={!currentRoutine.name || currentRoutine.tasks.length === 0}
-            className="flex items-center space-x-2 bg-green-500/20 hover:bg-green-500/30 disabled:opacity-50 disabled:cursor-not-allowed px-6 py-3 rounded-xl text-white font-semibold transition-all"
-          >
-            <Save className="w-5 h-5" />
-            <span>Save Routine</span>
+            className="flex items-center space-x-2 bg-green-500/20 hover:bg-green-500/30 disabled:opacity-50 disabled:cursor-not-allowed px-6 py-3 rounded-xl text-white font-semibold transition-all">
+            <Save className="w-5 h-5" /><span>Save Routine</span>
           </button>
         </div>
       </div>
 
       <div className="grid lg:grid-cols-2 gap-8">
-        {/* Routine Configuration */}
         <div className="space-y-6">
+          {/* Details */}
           <div className="bg-white/10 rounded-2xl p-6">
             <h3 className="text-xl font-bold text-white mb-4">Routine Details</h3>
             <div className="space-y-4">
               <div>
                 <label className="block text-white/70 text-sm mb-2">Name</label>
-                <input
-                  type="text"
-                  value={currentRoutine.name}
+                <input type="text" value={currentRoutine.name}
                   onChange={(e) => setCurrentRoutine({ ...currentRoutine, name: e.target.value })}
                   className="w-full bg-white/20 border border-white/30 rounded-xl px-4 py-3 text-white placeholder-white/50 focus:outline-none focus:border-white/50"
-                  placeholder="Morning Routine"
-                />
+                  placeholder="Morning Routine" />
               </div>
               <div>
                 <label className="block text-white/70 text-sm mb-2">Type</label>
-                <select
-                  value={currentRoutine.type}
-                  onChange={(e) => setCurrentRoutine({ ...currentRoutine, type: e.target.value as any })}
-                  className="w-full bg-white/20 border border-white/30 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-white/50"
-                >
+                <select value={currentRoutine.type}
+                  onChange={(e) => setCurrentRoutine({ ...currentRoutine, type: e.target.value as 'morning' | 'afterschool' | 'bedtime' })}
+                  className="w-full bg-white/20 border border-white/30 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-white/50">
                   <option value="morning">Morning</option>
                   <option value="afterschool">After School</option>
                   <option value="bedtime">Bedtime</option>
@@ -241,25 +200,26 @@ export default function RoutineBuilder({ routine, children, onSave, onCancel }: 
             </div>
           </div>
 
-          {/* Children Assignment */}
+          {/* Assign children */}
           <div className="bg-white/10 rounded-2xl p-6">
             <h3 className="text-xl font-bold text-white mb-4">Assign to Children</h3>
-            <div className="grid grid-cols-2 gap-3">
-              {children.map((child) => (
-                <button
-                  key={child.id}
-                  onClick={() => toggleChildAssignment(child.id)}
-                  className={`p-4 rounded-xl font-semibold transition-all ${
-                    currentRoutine.assignedChildren.includes(child.id)
-                      ? 'bg-green-500/30 border-2 border-green-400 text-white'
-                      : 'bg-white/20 border-2 border-white/30 text-white/70 hover:bg-white/30'
-                  }`}
-                >
-                  <div className="text-2xl mb-1">{child.avatar}</div>
-                  <div className="text-sm">{child.name}</div>
-                </button>
-              ))}
-            </div>
+            {familyChildren.length === 0 ? (
+              <p className="text-white/50">Add children first from the Children tab.</p>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                {familyChildren.map((child) => (
+                  <button key={child.id} onClick={() => toggleChildAssignment(child.id)}
+                    className={`p-4 rounded-xl font-semibold transition-all ${
+                      currentRoutine.assignedChildren.includes(child.id)
+                        ? 'bg-green-500/30 border-2 border-green-400 text-white'
+                        : 'bg-white/20 border-2 border-white/30 text-white/70 hover:bg-white/30'
+                    }`}>
+                    <div className="text-2xl mb-1">{child.avatar}</div>
+                    <div className="text-sm">{child.name}</div>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Stats */}
@@ -278,18 +238,14 @@ export default function RoutineBuilder({ routine, children, onSave, onCancel }: 
           </div>
         </div>
 
-        {/* Task Builder */}
         <div className="space-y-6">
-          {/* Available Tasks */}
+          {/* Available tasks */}
           <div className="bg-white/10 rounded-2xl p-6">
             <h3 className="text-xl font-bold text-white mb-4">Available Tasks</h3>
             <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto">
               {AVAILABLE_TASKS.map((task, index) => (
-                <button
-                  key={index}
-                  onClick={() => addTask(task)}
-                  className="flex items-center space-x-2 bg-white/20 hover:bg-white/30 p-3 rounded-xl text-left transition-all"
-                >
+                <button key={index} onClick={() => addTask(task)}
+                  className="flex items-center space-x-2 bg-white/20 hover:bg-white/30 p-3 rounded-xl text-left transition-all">
                   <span className="text-xl">{task.icon}</span>
                   <div className="flex-1 min-w-0">
                     <div className="text-white text-sm font-medium truncate">{task.name}</div>
@@ -301,36 +257,26 @@ export default function RoutineBuilder({ routine, children, onSave, onCancel }: 
             </div>
           </div>
 
-          {/* Current Tasks */}
+          {/* Current tasks */}
           <div className="bg-white/10 rounded-2xl p-6">
             <h3 className="text-xl font-bold text-white mb-4">Routine Tasks</h3>
             {currentRoutine.tasks.length === 0 ? (
               <div className="text-center py-8 text-white/50">
-                No tasks added yet. Add tasks from the available tasks above.
+                No tasks yet. Add from above.
               </div>
             ) : (
               <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-                <SortableContext 
-                  items={currentRoutine.tasks.map(task => task.id)} 
-                  strategy={verticalListSortingStrategy}
-                >
+                <SortableContext
+                  items={currentRoutine.tasks.map(t => t._tempId || String(t.id))}
+                  strategy={verticalListSortingStrategy}>
                   <div className="space-y-3">
                     {currentRoutine.tasks.map((task) => (
-                      <SortableTask
-                        key={task.id}
-                        task={task}
-                        onEdit={setEditingTask}
-                        onRemove={removeTask}
-                      />
+                      <SortableTask key={task._tempId || task.id} task={task} onRemove={removeTask} />
                     ))}
                   </div>
                 </SortableContext>
                 <DragOverlay>
-                  {activeId ? (
-                    <div className="bg-white/30 rounded-xl p-4 cursor-move">
-                      {/* Overlay content */}
-                    </div>
-                  ) : null}
+                  {activeId ? <div className="bg-white/30 rounded-xl p-4 cursor-move" /> : null}
                 </DragOverlay>
               </DndContext>
             )}
