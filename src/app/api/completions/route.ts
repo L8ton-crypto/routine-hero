@@ -1,4 +1,5 @@
 import { getDb } from '@/lib/db';
+import { checkAndAwardBadges } from '@/lib/badges';
 import { NextRequest, NextResponse } from 'next/server';
 
 // POST - Record a routine completion
@@ -71,11 +72,15 @@ export async function POST(req: NextRequest) {
       RETURNING id, name, avatar, xp, level, streak
     `;
 
+    // Check and award badges
+    const newBadges = await checkAndAwardBadges(childId);
+
     return NextResponse.json({
       ok: true,
       xpEarned,
       child: updated[0],
-      levelUp: newLevel > child.level
+      levelUp: newLevel > child.level,
+      newBadges
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

@@ -76,6 +76,39 @@ export async function POST() {
       )
     `;
 
+    // Badges table
+    await sql`
+      CREATE TABLE IF NOT EXISTS rh_badges (
+        id SERIAL PRIMARY KEY,
+        child_id INTEGER REFERENCES rh_children(id) ON DELETE CASCADE,
+        badge_type VARCHAR(50) NOT NULL,
+        earned_at TIMESTAMP DEFAULT NOW()
+      )
+    `;
+
+    // Rewards table
+    await sql`
+      CREATE TABLE IF NOT EXISTS rh_rewards (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        family_id INTEGER REFERENCES rh_families(id) ON DELETE CASCADE,
+        title VARCHAR(100) NOT NULL,
+        description VARCHAR(255),
+        xp_cost INTEGER NOT NULL,
+        icon VARCHAR(10) NOT NULL DEFAULT '🎁',
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `;
+
+    // Reward claims table
+    await sql`
+      CREATE TABLE IF NOT EXISTS rh_reward_claims (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        reward_id UUID REFERENCES rh_rewards(id) ON DELETE CASCADE,
+        child_id INTEGER REFERENCES rh_children(id) ON DELETE CASCADE,
+        claimed_at TIMESTAMP DEFAULT NOW()
+      )
+    `;
+
     return NextResponse.json({ ok: true, message: 'Tables created' });
   } catch (error: any) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });

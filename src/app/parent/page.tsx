@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Plus, Clock, Users, Target, Lock } from 'lucide-react'
+import { ArrowLeft, Plus, Clock, Users, Target, Lock, Award, Gift, Trophy } from 'lucide-react'
 import RoutineBuilder from '@/components/RoutineBuilder'
 import ChildrenManager from '@/components/ChildrenManager'
+import { BADGE_DEFINITIONS, Badge, Reward, RewardClaim } from '@/lib/types'
 
 interface Child {
   id: number
@@ -43,7 +44,7 @@ interface RecentActivity {
 }
 
 export default function ParentDashboard() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'routines' | 'children' | 'builder'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'routines' | 'children' | 'badges' | 'rewards' | 'leaderboard' | 'builder'>('overview')
   const [familyChildren, setFamilyChildren] = useState<Child[]>([])
   const [routines, setRoutines] = useState<Routine[]>([])
   const [editingRoutine, setEditingRoutine] = useState<Routine | null>(null)
@@ -54,6 +55,11 @@ export default function ParentDashboard() {
   const [pinError, setPinError] = useState('')
   const [stats, setStats] = useState({ totalXP: 0, avgLevel: 0, longestStreak: 0, routineCount: 0, todayCompletions: 0 })
   const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([])
+  const [badges, setBadges] = useState<Badge[]>([])
+  const [rewards, setRewards] = useState<Reward[]>([])
+  const [rewardClaims, setRewardClaims] = useState<RewardClaim[]>([])
+  const [showAddReward, setShowAddReward] = useState(false)
+  const [newReward, setNewReward] = useState({ title: '', description: '', xpCost: 100, icon: '🎁' })
 
   useEffect(() => {
     const stored = localStorage.getItem('rh_family')
@@ -92,19 +98,24 @@ export default function ParentDashboard() {
     if (!familyId) return
     setLoading(true)
     try {
-      const [childRes, routineRes, progressRes] = await Promise.all([
+      const [childRes, routineRes, progressRes, extendedRes] = await Promise.all([
         fetch(`/api/children?familyId=${familyId}`),
         fetch(`/api/routines?familyId=${familyId}`),
-        fetch(`/api/progress?familyId=${familyId}`)
+        fetch(`/api/progress?familyId=${familyId}`),
+        fetch(`/api/family-extended?familyId=${familyId}`)
       ])
       const childData = await childRes.json()
       const routineData = await routineRes.json()
       const progressData = await progressRes.json()
+      const extendedData = await extendedRes.json()
 
       setFamilyChildren(childData.children || [])
       setRoutines(routineData.routines || [])
       if (progressData.stats) setStats(progressData.stats)
       if (progressData.recentActivity) setRecentActivity(progressData.recentActivity)
+      if (extendedData.badges) setBadges(extendedData.badges)
+      if (extendedData.rewards) setRewards(extendedData.rewards)
+      if (extendedData.rewardClaims) setRewardClaims(extendedData.rewardClaims)
     } catch (e) {
       console.error('Failed to load data:', e)
     }
@@ -180,6 +191,59 @@ export default function ParentDashboard() {
     }
   }
 
+  const handleAddReward = async () => {
+    if (!familyId || !newReward.title || !newReward.xpCost) return
+    try {
+      await fetch('/api/rewards', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          familyId,
+          title: newReward.title,
+          description: newReward.description,
+          xpCost: newReward.xpCost,
+          icon: newReward.icon
+        })
+      })
+      setNewReward({ title: '', description: '', xpCost: 100, icon: '🎁' })
+      setShowAddReward(false)
+      loadData()
+    } catch (e) {
+      console.error('Failed to add reward:', e)
+    }
+  }
+
+  const handleClaimReward = async (rewardId: string, childId: number) => {
+    try {
+      const res = await fetch('/api/rewards/claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rewardId, childId })
+      })
+      const data = await res.json()
+      if (!data.ok) {
+        alert(data.error)
+        return
+      }
+      loadData()
+    } catch (e) {
+      console.error('Failed to claim reward:', e)
+    }
+  }
+
+  const handleDeleteReward = async (rewardId: string) => {
+    try {
+      await fetch('/api/rewards', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: rewardId })
+      })
+      loadData()
+    } catch (e) {
+      console.error('Failed to delete reward:', e)
+    }
+  }
+
   // PIN gate
   if (!pinVerified) {
     return (
@@ -243,23 +307,26 @@ export default function ParentDashboard() {
         </div>
 
         {/* Navigation Tabs */}
-        <div className="flex space-x-1 mb-8 bg-white/10 backdrop-blur-sm rounded-2xl p-2">
+        <div className="flex flex-wrap gap-1 mb-8 bg-white/10 backdrop-blur-sm rounded-2xl p-2">
           {[
             { id: 'overview', label: 'Overview', icon: Target },
             { id: 'routines', label: 'Routines', icon: Clock },
-            { id: 'children', label: 'Children', icon: Users }
+            { id: 'children', label: 'Children', icon: Users },
+            { id: 'badges', label: 'Badges', icon: Award },
+            { id: 'rewards', label: 'Rewards', icon: Gift },
+            { id: 'leaderboard', label: 'Leaderboard', icon: Trophy }
           ].map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as 'overview' | 'routines' | 'children')}
-              className={`flex items-center space-x-2 px-6 py-3 rounded-xl font-semibold transition-all ${
+              onClick={() => setActiveTab(tab.id as any)}
+              className={`flex items-center space-x-2 px-4 py-3 rounded-xl font-semibold transition-all ${
                 activeTab === tab.id
                   ? 'bg-white text-purple-600 shadow-lg'
                   : 'text-white hover:bg-white/10'
               }`}
             >
               <tab.icon className="w-5 h-5" />
-              <span>{tab.label}</span>
+              <span className="hidden sm:inline">{tab.label}</span>
             </button>
           ))}
         </div>
@@ -414,6 +481,183 @@ export default function ParentDashboard() {
             />
           )}
 
+          {activeTab === 'badges' && (
+            <div className="space-y-6">
+              <h2 className="text-2xl font-bold text-white">🏅 Family Badges</h2>
+              {familyChildren.map((child) => {
+                const childBadges = badges.filter(b => b.child_id === child.id);
+                return (
+                  <div key={child.id} className="bg-white/10 rounded-2xl p-6">
+                    <div className="flex items-center space-x-3 mb-4">
+                      <span className="text-3xl">{child.avatar}</span>
+                      <h3 className="text-xl font-bold text-white">{child.name}'s Badges</h3>
+                      <span className="text-white/60">({childBadges.length} earned)</span>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                      {Object.entries(BADGE_DEFINITIONS).map(([key, badge]) => {
+                        const earned = childBadges.some(b => b.badge_type === key);
+                        return (
+                          <div
+                            key={key}
+                            className={`p-4 rounded-xl border text-center transition-all ${
+                              earned
+                                ? 'bg-amber-500/20 border-amber-500/40'
+                                : 'bg-white/5 border-white/10 opacity-40'
+                            }`}
+                          >
+                            <div className={`text-3xl mb-2 ${earned ? '' : 'grayscale'}`}>
+                              {badge.icon}
+                            </div>
+                            <div className="font-semibold text-sm text-white">{badge.name}</div>
+                            <div className="text-xs text-white/60 mt-1">{badge.description}</div>
+                            {earned && (
+                              <div className="text-xs text-amber-400 mt-2">Earned!</div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {activeTab === 'rewards' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-bold text-white">🎁 Reward Shop</h2>
+                <button
+                  onClick={() => setShowAddReward(true)}
+                  className="flex items-center space-x-2 bg-white/20 hover:bg-white/30 px-6 py-3 rounded-xl text-white font-semibold transition-all"
+                >
+                  <Plus className="w-5 h-5" />
+                  <span>Add Reward</span>
+                </button>
+              </div>
+
+              {rewards.length === 0 ? (
+                <div className="text-center py-16 text-white/50">
+                  <p className="text-lg mb-4">No rewards yet</p>
+                  <button
+                    onClick={() => setShowAddReward(true)}
+                    className="bg-white/20 hover:bg-white/30 px-6 py-3 rounded-xl text-white font-semibold transition-all"
+                  >
+                    Add your first reward
+                  </button>
+                </div>
+              ) : (
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {rewards.map((reward) => (
+                    <div key={reward.id} className="bg-white/10 rounded-2xl p-6">
+                      <div className="flex items-start space-x-3 mb-4">
+                        <span className="text-3xl">{reward.icon}</span>
+                        <div className="flex-1">
+                          <h3 className="font-semibold text-white">{reward.title}</h3>
+                          {reward.description && (
+                            <p className="text-white/60 text-sm mt-1">{reward.description}</p>
+                          )}
+                          <div className="text-amber-400 font-bold text-sm mt-2">
+                            {reward.xp_cost} XP
+                          </div>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        {familyChildren.map((child) => {
+                          const canAfford = child.xp >= reward.xp_cost;
+                          return (
+                            <div key={child.id} className="flex items-center justify-between bg-white/5 rounded-lg p-3">
+                              <div className="flex items-center space-x-2">
+                                <span className="text-lg">{child.avatar}</span>
+                                <span className="text-white text-sm">{child.name}</span>
+                                <span className="text-white/60 text-xs">({child.xp} XP)</span>
+                              </div>
+                              <button
+                                onClick={() => handleClaimReward(reward.id, child.id)}
+                                disabled={!canAfford}
+                                className="px-3 py-1 bg-green-500 text-white rounded-lg text-xs font-semibold hover:bg-green-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                              >
+                                {canAfford ? 'Claim' : 'Need more XP'}
+                              </button>
+                            </div>
+                          );
+                        })}
+                        <button
+                          onClick={() => handleDeleteReward(reward.id)}
+                          className="w-full px-3 py-2 text-red-400 hover:bg-red-500/20 rounded-lg text-sm transition-colors"
+                        >
+                          Delete Reward
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {rewardClaims.length > 0 && (
+                <div className="bg-white/10 rounded-2xl p-6">
+                  <h3 className="text-lg font-bold text-white mb-4">Recent Claims</h3>
+                  <div className="space-y-2">
+                    {rewardClaims.slice(0, 5).map((claim) => (
+                      <div key={claim.id} className="flex items-center space-x-3 text-white/80">
+                        <span className="text-xl">{claim.child_avatar}</span>
+                        <span className="font-semibold">{claim.child_name}</span>
+                        <span>claimed</span>
+                        <span className="text-xl">{claim.reward_icon}</span>
+                        <span className="font-semibold">{claim.reward_title}</span>
+                        <span className="text-green-400 text-sm ml-auto">✓</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'leaderboard' && (
+            <div className="space-y-6">
+              <h2 className="text-2xl font-bold text-white">🏆 Family Leaderboard</h2>
+              <div className="space-y-4">
+                {familyChildren
+                  .sort((a, b) => b.xp - a.xp)
+                  .map((child, index) => {
+                    const childBadges = badges.filter(b => b.child_id === child.id);
+                    return (
+                      <div
+                        key={child.id}
+                        className={`flex items-center gap-6 p-6 rounded-2xl border transition-all ${
+                          index === 0
+                            ? 'bg-yellow-500/20 border-yellow-500/40'
+                            : index === 1
+                            ? 'bg-gray-500/20 border-gray-500/40'
+                            : index === 2
+                            ? 'bg-amber-800/20 border-amber-800/40'
+                            : 'bg-white/10 border-white/20'
+                        }`}
+                      >
+                        <div className="text-3xl font-bold text-white/60 w-12 text-center">
+                          {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}`}
+                        </div>
+                        <span className="text-4xl">{child.avatar}</span>
+                        <div className="flex-1">
+                          <div className="font-bold text-xl text-white">{child.name}</div>
+                          <div className="text-white/60">Level {child.level} • {child.streak} day streak</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-amber-400 font-bold text-2xl">
+                            {child.xp} XP
+                          </div>
+                          <div className="text-white/60 text-sm">
+                            {childBadges.length} badges
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
+
           {activeTab === 'builder' && editingRoutine && (
             <RoutineBuilder
               routine={editingRoutine}
@@ -427,6 +671,62 @@ export default function ParentDashboard() {
           )}
         </div>
       </div>
+
+      {/* Add Reward Modal */}
+      {showAddReward && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setShowAddReward(false)}>
+          <div className="bg-white/10 backdrop-blur-sm border-2 border-white/20 rounded-3xl p-8 max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-2xl font-bold text-white mb-6">🎁 Add Reward</h3>
+            <div className="space-y-4">
+              <input
+                type="text"
+                value={newReward.title}
+                onChange={(e) => setNewReward({ ...newReward, title: e.target.value })}
+                placeholder="Reward title"
+                className="w-full bg-white/20 border border-white/30 rounded-xl px-4 py-3 text-white placeholder-white/50 focus:outline-none focus:border-white/50"
+                autoFocus
+              />
+              <input
+                type="text"
+                value={newReward.description}
+                onChange={(e) => setNewReward({ ...newReward, description: e.target.value })}
+                placeholder="Description (optional)"
+                className="w-full bg-white/20 border border-white/30 rounded-xl px-4 py-3 text-white placeholder-white/50 focus:outline-none focus:border-white/50"
+              />
+              <div className="flex space-x-4">
+                <input
+                  type="number"
+                  value={newReward.xpCost}
+                  onChange={(e) => setNewReward({ ...newReward, xpCost: parseInt(e.target.value) || 100 })}
+                  placeholder="XP Cost"
+                  className="flex-1 bg-white/20 border border-white/30 rounded-xl px-4 py-3 text-white placeholder-white/50 focus:outline-none focus:border-white/50"
+                />
+                <input
+                  type="text"
+                  value={newReward.icon}
+                  onChange={(e) => setNewReward({ ...newReward, icon: e.target.value })}
+                  placeholder="🎁"
+                  className="w-20 bg-white/20 border border-white/30 rounded-xl px-4 py-3 text-white text-center focus:outline-none focus:border-white/50"
+                />
+              </div>
+              <div className="flex space-x-3 mt-6">
+                <button
+                  onClick={() => setShowAddReward(false)}
+                  className="flex-1 bg-white/20 hover:bg-white/30 text-white py-3 rounded-xl font-semibold transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleAddReward}
+                  className="flex-1 bg-blue-500/30 hover:bg-blue-500/40 text-white py-3 rounded-xl font-semibold transition-all"
+                >
+                  Add Reward
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
